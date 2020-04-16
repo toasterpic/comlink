@@ -81,47 +81,43 @@ export interface TransferHandler {
   deserialize(obj: any): any;
 }
 
-export const transferHandlers = new Map<string, TransferHandler>([
-  [
-    "proxy",
-    {
-      canHandle: obj => obj && obj[proxyMarker],
-      serialize(obj) {
-        const { port1, port2 } = new MessageChannel();
-        expose(obj, port1);
-        return [port2, [port2]];
-      },
-      deserialize: (port: MessagePort) => {
-        port.start();
-        return wrap(port);
-      }
-    }
-  ],
-  [
-    "throw",
-    {
-      canHandle: obj => throwSet.has(obj),
-      serialize(obj) {
-        const isError = obj instanceof Error;
-        let serialized = obj;
-        if (isError) {
-          serialized = {
-            isError,
-            message: obj.message,
-            stack: obj.stack
-          };
+export const transferHandlers: Record<string, TransferHandler> = {
+  "proxy":
+      {
+        canHandle: obj => obj && obj[proxyMarker],
+        serialize(obj) {
+          const {port1, port2} = new MessageChannel();
+          expose(obj, port1);
+          return [port2, [port2]];
+        },
+        deserialize: (port: MessagePort) => {
+          port.start();
+          return wrap(port);
         }
-        return [serialized, []];
       },
-      deserialize(obj) {
-        if ((obj as any).isError) {
-          throw Object.assign(new Error(), obj);
+  "throw":
+      {
+        canHandle: obj => throwSet.has(obj),
+        serialize(obj) {
+          const isError = obj instanceof Error;
+          let serialized = obj;
+          if (isError) {
+            serialized = {
+              isError,
+              message: obj.message,
+              stack: obj.stack
+            };
+          }
+          return [serialized, []];
+        },
+        deserialize(obj) {
+          if ((obj as any).isError) {
+            throw Object.assign(new Error(), obj);
+          }
+          throw obj;
         }
-        throw obj;
       }
-    }
-  ]
-]);
+};
 
 export function expose(obj: any, ep: Endpoint = self as any) {
   ep.addEventListener("message", function callback(ev: MessageEvent) {
@@ -335,7 +331,7 @@ export function windowEndpoint(
 }
 
 function toWireValue(value: any): [WireValue, Transferable[]] {
-  for (const [name, handler] of transferHandlers) {
+  for (const [name, handler] of transferHandlers as unknown as Map<string, TransferHandler>) {
     if (handler.canHandle(value)) {
       const [serializedValue, transferables] = handler.serialize(value);
       return [
@@ -360,7 +356,7 @@ function toWireValue(value: any): [WireValue, Transferable[]] {
 function fromWireValue(value: WireValue): any {
   switch (value.type) {
     case WireValueType.HANDLER:
-      return transferHandlers.get(value.name)!.deserialize(value.value);
+      return transferHandlers[value.name]!.deserialize(value.value);
     case WireValueType.RAW:
       return value.value;
   }
